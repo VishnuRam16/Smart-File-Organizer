@@ -4,7 +4,8 @@ main.py
 Entry point for Smart File Organizer.
 
 Usage:
-    python src/main.py
+    python src/main.py            # with system tray (default)
+    python src/main.py --no-tray  # headless / terminal-only mode
 """
 
 import sys
@@ -28,7 +29,21 @@ def main() -> None:
     VERSIONS_FOLDER.mkdir(parents=True, exist_ok=True)
     ARCHIVE_FOLDER.mkdir(parents=True, exist_ok=True)
 
-    run_watcher(WATCH_FOLDER)
+    use_tray = "--no-tray" not in sys.argv
+
+    if use_tray:
+        try:
+            from tray import TrayController
+
+            TrayController(WATCH_FOLDER).run()
+        except ImportError:
+            logger.warning(
+                "pystray or Pillow not installed — falling back to terminal mode. "
+                "Install with: pip install pystray Pillow"
+            )
+            run_watcher(WATCH_FOLDER)
+    else:
+        run_watcher(WATCH_FOLDER)
 
 
 if __name__ == "__main__":
