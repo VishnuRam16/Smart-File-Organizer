@@ -52,10 +52,14 @@ pip install -r requirements.txt
 ## Running
 
 ```bash
-python src/main.py
+python src/main.py              # launches with system tray icon
+python src/main.py --no-tray    # headless terminal-only mode
 ```
 
-Press **Ctrl+C** to stop.
+With the tray icon, use the menu-bar icon (macOS) or system-tray icon
+(Windows) to **Start**, **Stop**, or **Quit** the watcher.
+
+In `--no-tray` mode, press **Ctrl+C** to stop.
 
 ## Configuration
 
@@ -107,6 +111,7 @@ Smart-File-Organizer/
 │   ├── utils.py           # Regex, logging, timestamp helpers
 │   ├── file_handler.py    # Core archive/promote logic
 │   ├── watcher.py         # Watchdog observer with debounce
+│   ├── tray.py            # System tray icon (pystray)
 │   └── main.py            # Entry point
 ├── tests/
 │   ├── test_smart_file_organizer.py   # 37 pytest unit tests
@@ -146,7 +151,6 @@ pytest tests/ -v
 
 ## Future Improvements
 
-- **System tray icon** via `pystray` with a "Stop" option
 - **macOS LaunchAgent** auto-installer for run-at-login
 - **Desktop notifications** via `plyer` on each processed file
 - **Multiple watch folders** — extend `WATCH_FOLDER` to a list
