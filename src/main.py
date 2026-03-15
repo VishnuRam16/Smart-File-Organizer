@@ -4,7 +4,7 @@ main.py
 Entry point for Smart File Organizer.
 
 Usage:
-    python main.py
+    python src/main.py
 """
 
 import sys
