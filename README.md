@@ -17,6 +17,18 @@ Downloads/
 Smart File Organizer detects each new duplicate, archives the old version
 with a timestamp, and renames the download to the clean canonical name.
 
+It works with **any filename convention** as long as the file contains
+"Resume" or "CV" and has an OS-appended `(n)` duplicate suffix:
+
+```
+Sam Smith - Resume (1).pdf       ✓
+FN_LN_Resume (2).docx            ✓
+Jane Doe CV (1).pdf               ✓
+my-resume (3).docx               ✓
+budget (1).pdf                   ✗  (no keyword match)
+photo (1).jpg                    ✗  (not pdf/docx)
+```
+
 ## Requirements
 
 - Python 3.11 or newer
@@ -26,7 +38,7 @@ with a timestamp, and renames the download to the clean canonical name.
 
 ```bash
 # 1. Navigate to the project folder
-cd smart_file_organizer
+cd Smart-File-Organizer
 
 # 2. Create and activate a virtual environment (recommended)
 python -m venv .venv
@@ -40,14 +52,14 @@ pip install -r requirements.txt
 ## Running
 
 ```bash
-python main.py
+python src/main.py
 ```
 
 Press **Ctrl+C** to stop.
 
 ## Configuration
 
-All tunable values live in `config.py`:
+All tunable values live in `src/config.py`:
 
 | Constant                   | Default                          | Purpose                                |
 |----------------------------|----------------------------------|----------------------------------------|
@@ -73,7 +85,7 @@ process_file()
         │
         ├── is temp extension?    → skip
         ├── contains keyword?     → skip if not
-        ├── matches (n) pattern?  → skip if not
+        ├── matches (n) pattern?  → skip if not (any .pdf/.docx with OS duplicate suffix)
         │
         ▼
 Wait for file size to stabilise
@@ -84,6 +96,24 @@ Base file exists in Resume Versions?
         │
         ▼
 Move new file to Resume Versions/ with clean base name
+```
+
+## Project Layout
+
+```
+Smart-File-Organizer/
+├── src/
+│   ├── config.py          # All tunable constants
+│   ├── utils.py           # Regex, logging, timestamp helpers
+│   ├── file_handler.py    # Core archive/promote logic
+│   ├── watcher.py         # Watchdog observer with debounce
+│   └── main.py            # Entry point
+├── tests/
+│   ├── test_smart_file_organizer.py   # 37 pytest unit tests
+│   └── live_test.py                   # Dummy-file integration simulation
+├── .gitignore
+├── requirements.txt
+└── README.md
 ```
 
 ## Example Logs
@@ -105,7 +135,13 @@ Move new file to Resume Versions/ with clean base name
 ## Run in Background (macOS/Linux)
 
 ```bash
-nohup python main.py &> rvk.log &
+nohup python src/main.py &> sfo.log &
+```
+
+## Running Tests
+
+```bash
+pytest tests/ -v
 ```
 
 ## Future Improvements
@@ -114,7 +150,6 @@ nohup python main.py &> rvk.log &
 - **macOS LaunchAgent** auto-installer for run-at-login
 - **Desktop notifications** via `plyer` on each processed file
 - **Multiple watch folders** — extend `WATCH_FOLDER` to a list
-- **Unit tests** with `pytest` + `tmp_path` fixtures
 - **Archive pruning** — delete entries older than N days
-- **Support `.docx` / `.pages`** — extend the regex beyond PDF
+- **Support `.pages`** — extend the regex to handle more formats
 - **Dry-run mode** — `--dry-run` flag that logs without modifying files
