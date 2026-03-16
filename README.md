@@ -1,53 +1,76 @@
 # Smart File Organizer
 
-A lightweight Python background utility that automatically manages duplicate
-resume downloads in your Downloads folder.
+A lightweight Python background utility that watches your Downloads folder,
+**automatically categorizes** every new file into organized subfolders, and
+**deduplicates** OS-generated copies — keeping only the latest version and
+archiving older ones with their original file-creation timestamps.
 
-## The Problem
+## What It Does
 
-When you download the same resume multiple times, your OS creates:
+### 1. Auto-categorize downloads
+
+Every new file is classified by filename keywords or extension and moved
+into the matching subfolder:
+
+| Category      | Matches                                                        |
+|---------------|----------------------------------------------------------------|
+| Screenshots   | Filenames containing "screenshot" or "screen shot"             |
+| Resumes       | Filenames containing "resume" or "cv" (.pdf/.docx)             |
+| Invoices      | Filenames containing "invoice", "receipt", or "bill"           |
+| Photos        | `.jpg` `.jpeg` `.png` `.heic` `.gif` `.bmp` `.tiff` `.webp`   |
+| Data          | `.csv` `.xlsx` `.xls` `.tsv` `.json`                           |
+| Documents     | `.pdf` `.docx` `.doc` `.pptx` `.txt` `.md`                    |
+
+### 2. Deduplicate within each category
+
+When the OS creates `report (1).pdf`, `report (2).pdf`, etc., the organizer:
+
+1. **Promotes** the newest copy to the clean base name (`report.pdf`)
+2. **Archives** all older versions into a `<Category> Archive/` subfolder
+3. Timestamps use the file's **original creation date** (`st_birthtime`), not processing time
+4. If two files share the same birthtime, a `_2`, `_3` counter suffix avoids collisions
+
+### 3. Resume-specific handling
+
+Resume/CV files get dedicated treatment — duplicates are managed in a
+`Resume Versions/` folder with a `Resume Archives/` subfolder, separate
+from the general category system.
+
+### Before & After
 
 ```
-Downloads/
-  Sam Smith - Resume.pdf
-  Sam Smith - Resume (1).pdf
-  Sam Smith - Resume (2).pdf
-```
-
-Smart File Organizer detects each new duplicate, archives the old version
-with a timestamp, and renames the download to the clean canonical name.
-
-It works with **any filename convention** as long as the file contains
-"Resume" or "CV" and has an OS-appended `(n)` duplicate suffix:
-
-```
-Sam Smith - Resume (1).pdf       ✓
-FN_LN_Resume (2).docx            ✓
-Jane Doe CV (1).pdf               ✓
-my-resume (3).docx               ✓
-budget (1).pdf                   ✗  (no keyword match)
-photo (1).jpg                    ✗  (not pdf/docx)
+Downloads/                              Downloads/
+  IMG_1484 (1).png                        Photos/
+  IMG_1484 (2).png                          IMG_1484.png            ← latest
+  IMG_1484 (3).png          ──────▶         Photos Archive/
+  report (1).pdf                              IMG_1484 - 2024-01-08_11-00-10.png
+  report.pdf                                  IMG_1484 - 2024-01-08_11-00-46.png
+  data (1).csv                            Documents/
+  data.csv                                  report.pdf              ← latest
+                                            Documents Archive/
+                                              report - 2025-02-10_09-15-33.pdf
+                                          Data/
+                                            data.csv                ← latest
+                                            Data Archive/
+                                              data - 2024-12-01_14-22-08.csv
 ```
 
 ## Requirements
 
-- Python 3.11 or newer
-- pip
+- Python 3.11+
+- macOS, Windows, or Linux
 
 ## Setup
 
 ```bash
-# 1. Navigate to the project folder
 cd Smart-File-Organizer
-
-# 2. Create and activate a virtual environment (recommended)
 python -m venv .venv
 source .venv/bin/activate        # macOS / Linux
-.venv\Scripts\activate           # Windows
-
-# 3. Install dependencies
+# .venv\Scripts\activate         # Windows
 pip install -r requirements.txt
 ```
+
+Dependencies: `watchdog`, `pystray`, `Pillow`
 
 ## Running
 
@@ -56,8 +79,14 @@ python src/main.py              # launches with system tray icon
 python src/main.py --no-tray    # headless terminal-only mode
 ```
 
-With the tray icon, use the menu-bar icon (macOS) or system-tray icon
-(Windows) to **Start**, **Stop**, or **Quit** the watcher.
+### System tray
+
+A menu-bar icon (macOS) or system-tray icon (Windows/Linux) lets you
+**Start**, **Stop**, or **Quit** the watcher. The icon is green when
+running and red when stopped.
+
+If `pystray` is not installed, the app falls back to terminal mode
+automatically.
 
 In `--no-tray` mode, press **Ctrl+C** to stop.
 
@@ -65,16 +94,17 @@ In `--no-tray` mode, press **Ctrl+C** to stop.
 
 All tunable values live in `src/config.py`:
 
-| Constant                   | Default                          | Purpose                                |
-|----------------------------|----------------------------------|----------------------------------------|
-| `WATCH_FOLDER`             | `~/Downloads`                    | Folder to monitor                      |
-| `VERSIONS_FOLDER`          | `~/Downloads/Resume Versions`    | Latest resume (clean base name)        |
-| `ARCHIVE_FOLDER`           | `.../Resume Versions/Resume Archives` | Older versions with timestamps    |
-| `KEYWORD_FILTER`           | `["Resume", "CV"]`               | Filename must contain one of these     |
-| `DOWNLOAD_SETTLE_INTERVAL` | `1.0` s                          | Polling interval for size check        |
-| `DOWNLOAD_TIMEOUT`         | `30.0` s                         | Give-up threshold for size polling     |
-| `DEBOUNCE_SECONDS`         | `3.0` s                          | Deduplication window for OS events     |
-| `TEMP_EXTENSIONS`          | `.crdownload .part .tmp .download`| Extensions to always ignore           |
+| Constant                   | Default                               | Purpose                                |
+|----------------------------|---------------------------------------|----------------------------------------|
+| `WATCH_FOLDER`             | `~/Downloads`                         | Folder to monitor                      |
+| `VERSIONS_FOLDER`          | `~/Downloads/Resume Versions`         | Latest resume (clean base name)        |
+| `ARCHIVE_FOLDER`           | `.../Resume Versions/Resume Archives` | Older resume versions with timestamps  |
+| `KEYWORD_FILTER`           | `["Resume", "CV"]`                    | Resume-handler keyword triggers        |
+| `CATEGORIES`               | 6 categories (see table above)        | Category → keywords + extensions map   |
+| `DOWNLOAD_SETTLE_INTERVAL` | `1.0` s                               | Polling interval for size check        |
+| `DOWNLOAD_TIMEOUT`         | `30.0` s                              | Give-up threshold for size polling     |
+| `DEBOUNCE_SECONDS`         | `3.0` s                               | Deduplication window for OS events     |
+| `TEMP_EXTENSIONS`          | `.crdownload .part .tmp .download`    | Extensions to always ignore            |
 
 ## How It Works
 
@@ -82,40 +112,61 @@ All tunable values live in `src/config.py`:
 New file appears in ~/Downloads
         │
         ▼
-ResumeEventHandler.on_created / on_moved
+EventHandler.on_created / on_moved
         │
         ▼ (after DEBOUNCE_SECONDS)
 process_file()
         │
-        ├── is temp extension?    → skip
-        ├── contains keyword?     → skip if not
-        ├── matches (n) pattern?  → skip if not (any .pdf/.docx with OS duplicate suffix)
+        ├── is temp extension?         → skip
+        ├── contains resume keyword?   → handle as resume duplicate
         │
         ▼
-Wait for file size to stabilise
+classify() — two-pass:
+  1. filename keyword match (screenshot, invoice, etc.)
+  2. extension fallback (.jpg → Photos, .csv → Data, etc.)
+        │
+        ├── no category match?         → skip
         │
         ▼
-Base file exists in Resume Versions?
-  YES → archive it with timestamp → Resume Versions/Resume Archives/
-        │
-        ▼
-Move new file to Resume Versions/ with clean base name
+Is it a duplicate? e.g. "file (n).ext"
+  YES → archive existing base in <Category> Archive/
+        (timestamp = file's original st_birthtime)
+        promote new file to clean base name
+  NO  → move to <Category>/ folder
 ```
+
+## Archive Timestamps
+
+Archive filenames embed the **file's original creation date**, not the
+time it was processed. This is resolved cross-platform:
+
+| OS            | Timestamp source                     |
+|---------------|--------------------------------------|
+| macOS         | `st_birthtime` (file creation time)  |
+| Windows 3.12+ | `st_birthtime`                      |
+| Windows <3.12 | `st_ctime` (creation time)           |
+| Linux         | `st_ctime` (metadata change — best available) |
+
+If two files produce the same timestamp, a `_2`, `_3` counter is appended
+to avoid overwriting: `report - 2025-02-10_09-15-33_2.pdf`
 
 ## Project Layout
 
 ```
 Smart-File-Organizer/
 ├── src/
-│   ├── config.py          # All tunable constants
-│   ├── utils.py           # Regex, logging, timestamp helpers
-│   ├── file_handler.py    # Core archive/promote logic
-│   ├── watcher.py         # Watchdog observer with debounce
-│   ├── tray.py            # System tray icon (pystray)
-│   └── main.py            # Entry point
+│   ├── config.py          # Tunable constants + category definitions
+│   ├── utils.py           # Regex, logging, timestamp + archive-name helpers
+│   ├── classifier.py      # Two-pass file classifier (keyword → extension)
+│   ├── file_handler.py    # Core archive/promote/classify logic
+│   ├── watcher.py         # Watchdog observer with per-file debounce
+│   ├── tray.py            # System tray icon (pystray + Pillow)
+│   └── main.py            # Entry point (tray / --no-tray)
 ├── tests/
 │   ├── test_smart_file_organizer.py   # 37 pytest unit tests
-│   └── live_test.py                   # Dummy-file integration simulation
+│   ├── test_classifier_dummy.py       # Integration test on dummy files
+│   └── live_test.py                   # Multi-scenario simulation
+├── dummy files/            # Sample files for manual testing
 ├── .gitignore
 ├── requirements.txt
 └── README.md
@@ -125,16 +176,19 @@ Smart-File-Organizer/
 
 ```
 [INFO] Smart File Organizer starting up...
-[INFO]   Watch folder  : /Users/sam/Downloads
-[INFO]   Versions folder: /Users/sam/Downloads/Resume Versions
-[INFO]   Archive folder : /Users/sam/Downloads/Resume Versions/Resume Archives
+[INFO]   Watch folder: /Users/sam/Downloads
 [INFO] Watching folder: /Users/sam/Downloads
-[INFO] Press Ctrl+C to stop.
+
+[INFO] Sorted IMG_1484 (1).png → Photos/IMG_1484.png
+[INFO] Archived → Photos Archive/IMG_1484 - 2024-01-08_11-00-10.png
+[INFO] Sorted IMG_1484 (2).png → Photos/IMG_1484.png
+
+[INFO] Archived Downloads copy → Documents Archive/report - 2025-02-10_09-15-33.pdf
+[INFO] Sorted report (1).pdf → Documents/report.pdf
+
 [INFO] Detected duplicate resume: Sam Smith - Resume (1).pdf
 [INFO] Archived old resume → Resume Archives/Sam Smith - Resume - 2026-03-15_14-32-11.pdf
 [INFO] Moved new resume → Resume Versions/Sam Smith - Resume.pdf
-[INFO] Shutdown requested — stopping watcher...
-[INFO] Watcher stopped. Goodbye.
 ```
 
 ## Run in Background (macOS/Linux)
@@ -146,7 +200,8 @@ nohup python src/main.py &> sfo.log &
 ## Running Tests
 
 ```bash
-pytest tests/ -v
+pytest tests/ -v                              # 37 unit tests
+python tests/test_classifier_dummy.py         # integration test on dummy files
 ```
 
 ## Future Improvements
