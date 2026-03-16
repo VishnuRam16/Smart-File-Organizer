@@ -140,6 +140,7 @@ def workspace(tmp_path):
     patches = {
         "file_handler.ARCHIVE_FOLDER": archives,
         "file_handler.VERSIONS_FOLDER": versions,
+        "file_handler.WATCH_FOLDER": downloads,
         "file_handler.KEYWORD_FILTER": ["Resume", "CV"],
         "file_handler.TEMP_EXTENSIONS": frozenset({".crdownload", ".part", ".tmp", ".download"}),
         "file_handler.DOWNLOAD_SETTLE_INTERVAL": 0.01,  # Speed up tests
@@ -250,22 +251,28 @@ class TestProcessFile:
         assert len(list(f for f in workspace["versions"].glob("*") if f.is_file())) == 0
 
     def test_ignores_non_keyword_file(self, workspace):
-        """Files without 'Resume' or 'CV' in the name should be skipped."""
+        """Files without 'Resume' or 'CV' are classified and deduped into category."""
         dup = workspace["downloads"] / "budget (1).pdf"
         dup.write_text("spreadsheet")
 
         file_handler.process_file(dup)
 
-        assert dup.exists(), "Non-keyword file should not be touched"
+        # Classifier sorts it into Documents/ with clean base name (no (1))
+        assert not dup.exists(), "Classifier should move the file"
+        sorted_file = workspace["downloads"] / "Documents" / "budget.pdf"
+        assert sorted_file.exists(), "Should be sorted into Documents/ as budget.pdf"
 
     def test_ignores_non_duplicate_resume(self, workspace):
-        """A resume without (n) suffix is not a duplicate — should be skipped."""
+        """A resume without (n) suffix is classified into Resumes/, not duplicate-handled."""
         base = workspace["downloads"] / "Sam Smith - Resume.pdf"
         base.write_text("original")
 
         file_handler.process_file(base)
 
-        assert base.exists(), "Non-duplicate should stay in Downloads"
+        # Classifier sorts it into Resumes/ (keyword match takes priority)
+        assert not base.exists(), "Classifier should move the file"
+        sorted_file = workspace["downloads"] / "Resumes" / "Sam Smith - Resume.pdf"
+        assert sorted_file.exists(), "Should be sorted into Resumes/"
 
     def test_docx_support(self, workspace):
         """Should handle .docx files the same as .pdf."""
