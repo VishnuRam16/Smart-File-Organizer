@@ -8,6 +8,7 @@ pattern parsing.  No business logic lives here.
 import logging
 import re
 from datetime import datetime
+from pathlib import Path
 
 
 # ── Logging ────────────────────────────────────────────────────────────────
@@ -54,6 +55,12 @@ _DUPLICATE_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Broader pattern: any file with OS-appended (n) suffix, any extension
+_GENERIC_DUPLICATE_RE = re.compile(
+    r"^(.+?)\s*\((\d+)\)(\.\w+)$",
+    re.IGNORECASE,
+)
+
 
 def parse_duplicate(filename: str) -> tuple[str, str] | None:
     """
@@ -80,6 +87,22 @@ def parse_duplicate(filename: str) -> tuple[str, str] | None:
     return None
 
 
+def parse_generic_duplicate(filename: str) -> tuple[str, str] | None:
+    """
+    Like ``parse_duplicate`` but matches *any* extension.
+
+    Examples::
+
+        parse_generic_duplicate("IMG_1484 (2).png") → ("IMG_1484", ".png")
+        parse_generic_duplicate("sample (1).csv")   → ("sample", ".csv")
+        parse_generic_duplicate("report.pdf")       → None
+    """
+    m = _GENERIC_DUPLICATE_RE.match(filename)
+    if m:
+        return m.group(1), m.group(3)
+    return None
+
+
 def contains_keyword(filename: str, keywords: list[str]) -> bool:
     """
     Return ``True`` if *filename* contains at least one entry from *keywords*
@@ -89,13 +112,39 @@ def contains_keyword(filename: str, keywords: list[str]) -> bool:
     return any(kw.lower() in lower for kw in keywords)
 
 
-def build_archive_name(stem: str, extension: str) -> str:
+def build_archive_name(stem: str, extension: str,
+                       source_path: Path | None = None,
+                       archive_dir: Path | None = None) -> str:
     """
-    Append the current timestamp to *stem* and return a full filename.
+    Build an archive filename using the file's original creation date.
+
+    Uses ``st_birthtime`` (macOS, Windows 3.12+), falls back to
+    ``st_ctime`` (creation time on Windows, metadata change on Linux).
+    If *archive_dir* already contains a file with that name, appends
+    ``_2``, ``_3``, etc. to avoid collisions.
 
     Example::
 
-        build_archive_name("Sam Smith - Resume", ".pdf")
-        # → "Sam Smith - Resume - 2026-03-15_14-32-11.pdf"
+        build_archive_name("report", ".pdf", source_path=Path("report.pdf"),
+                           archive_dir=Path("Documents Archive"))
+        # → "report - 2026-02-15_10-23-45.pdf"
     """
-    return f"{stem} - {current_timestamp()}{extension}"
+    if source_path and source_path.exists():
+        stat = source_path.stat()
+        birth = getattr(stat, "st_birthtime", stat.st_ctime)
+        ts = datetime.fromtimestamp(birth).strftime("%Y-%m-%d_%H-%M-%S")
+    else:
+        ts = current_timestamp()
+
+    name = f"{stem} - {ts}{extension}"
+
+    # Avoid collision within the archive directory
+    if archive_dir and archive_dir.exists():
+        candidate = archive_dir / name
+        counter = 2
+        while candidate.exists():
+            name = f"{stem} - {ts}_{counter}{extension}"
+            candidate = archive_dir / name
+            counter += 1
+
+    return name

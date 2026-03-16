@@ -19,8 +19,10 @@ from config import (
     KEYWORD_FILTER,
     TEMP_EXTENSIONS,
     VERSIONS_FOLDER,
+    WATCH_FOLDER,
 )
-from utils import build_archive_name, contains_keyword, logger, parse_duplicate
+from classifier import classify
+from utils import build_archive_name, contains_keyword, logger, parse_duplicate, parse_generic_duplicate
 
 
 # ── Internal helpers ───────────────────────────────────────────────────────
@@ -72,7 +74,8 @@ def _archive_base_file(base_path: Path) -> bool:
     Returns ``True`` on success, ``False`` if the move failed (logged).
     """
     archive_dir = _ensure_archive_folder()
-    archive_name = build_archive_name(base_path.stem, base_path.suffix)
+    archive_name = build_archive_name(base_path.stem, base_path.suffix,
+                                      source_path=base_path, archive_dir=archive_dir)
     archive_dest = archive_dir / archive_name
 
     try:
@@ -109,25 +112,27 @@ def process_file(path: Path) -> None:
     if _is_temp_file(path):
         return
 
-    # ── Guard: keyword filter ──────────────────────────────────────────────
-    if not contains_keyword(path.name, KEYWORD_FILTER):
-        return
+    # ── Try duplicate resume handler first ─────────────────────────────────
+    if contains_keyword(path.name, KEYWORD_FILTER):
+        parsed = parse_duplicate(path.name)
+        if parsed is not None:
+            _handle_duplicate(path, parsed)
+            return
 
-    # ── Guard: duplicate pattern ───────────────────────────────────────────
-    parsed = parse_duplicate(path.name)
-    if parsed is None:
-        return  # Not a duplicate — nothing to do
+    # ── Fall through to category-based sorting ─────────────────────────────
+    _handle_classify(path)
 
+
+def _handle_duplicate(path: Path, parsed: tuple[str, str]) -> None:
+    """Archive old copies and promote the new duplicate to the clean name."""
     base_stem, extension = parsed
     base_filename = f"{base_stem}{extension}"
 
-    # The latest resume lives in Resume Versions (not Downloads)
     VERSIONS_FOLDER.mkdir(parents=True, exist_ok=True)
     base_path = VERSIONS_FOLDER / base_filename
 
     logger.info("Detected duplicate resume: %s", path.name)
 
-    # ── Wait for the duplicate to finish downloading ───────────────────────
     if not _wait_for_download_completion(path):
         logger.warning(
             "Could not confirm download completion for: %s — skipping.",
@@ -135,13 +140,11 @@ def process_file(path: Path) -> None:
         )
         return
 
-    # Re-check after the wait (file could have been deleted externally)
     if not path.exists():
         logger.warning("File disappeared before processing: %s", path.name)
         return
 
-    # ── Archive old copies before placing the new one ─────────────────────
-    # 1. The base file sitting in Downloads (the one the OS kept from before)
+    # 1. The base file sitting in Downloads
     downloads_base = path.parent / base_filename
     if downloads_base.exists():
         if not _archive_base_file(downloads_base):
@@ -150,7 +153,7 @@ def process_file(path: Path) -> None:
             )
             return
 
-    # 2. A previous latest in Resume Versions (from an earlier run)
+    # 2. A previous latest in Resume Versions
     if base_path.exists():
         if not _archive_base_file(base_path):
             logger.error(
@@ -158,7 +161,6 @@ def process_file(path: Path) -> None:
             )
             return
 
-    # ── Move the new duplicate to Resume Versions with the clean name ────
     try:
         shutil.move(str(path), str(base_path))
         logger.info("Moved new resume → Resume Versions/%s", base_filename)
@@ -169,3 +171,86 @@ def process_file(path: Path) -> None:
             base_filename,
             exc,
         )
+
+
+def _handle_classify(path: Path) -> None:
+    """Sort *path* into a category subfolder, deduplicating within the category."""
+    category = classify(path)
+    if category is None:
+        return
+
+    if not _wait_for_download_completion(path):
+        logger.warning(
+            "Could not confirm download completion for: %s — skipping.",
+            path.name,
+        )
+        return
+
+    if not path.exists():
+        logger.warning("File disappeared before processing: %s", path.name)
+        return
+
+    dest_folder = WATCH_FOLDER / category
+    archive_folder = dest_folder / f"{category} Archive"
+    dest_folder.mkdir(exist_ok=True)
+
+    # Check if this is an OS-duplicate e.g. "file (1).png"
+    parsed = parse_generic_duplicate(path.name)
+    if parsed is not None:
+        base_stem, extension = parsed
+        base_filename = f"{base_stem}{extension}"
+
+        # Archive old base in the category folder if it exists
+        existing_base = dest_folder / base_filename
+        if existing_base.exists():
+            archive_folder.mkdir(exist_ok=True)
+            archive_name = build_archive_name(existing_base.stem, existing_base.suffix,
+                                              source_path=existing_base, archive_dir=archive_folder)
+            archive_dest = archive_folder / archive_name
+            try:
+                shutil.move(str(existing_base), str(archive_dest))
+                logger.info(
+                    "Archived → %s/%s",
+                    archive_folder.name,
+                    archive_name,
+                )
+            except OSError as exc:
+                logger.error("Failed to archive %s: %s", existing_base.name, exc)
+                return
+
+        # Also archive the base file if it's still sitting in Downloads
+        downloads_base = path.parent / base_filename
+        if downloads_base.exists() and downloads_base != path:
+            archive_folder.mkdir(exist_ok=True)
+            archive_name = build_archive_name(downloads_base.stem, downloads_base.suffix,
+                                              source_path=downloads_base, archive_dir=archive_folder)
+            archive_dest = archive_folder / archive_name
+            try:
+                shutil.move(str(downloads_base), str(archive_dest))
+                logger.info(
+                    "Archived Downloads copy → %s/%s",
+                    archive_folder.name,
+                    archive_name,
+                )
+            except OSError as exc:
+                logger.error("Failed to archive %s: %s", downloads_base.name, exc)
+                return
+
+        # Move the new duplicate with the clean base name
+        dest = dest_folder / base_filename
+        try:
+            shutil.move(str(path), str(dest))
+            logger.info("Sorted %s → %s/%s", path.name, category, base_filename)
+        except OSError as exc:
+            logger.error("Failed to sort %s → %s/: %s", path.name, category, exc)
+    else:
+        # Not a duplicate — just move it
+        dest = dest_folder / path.name
+        if dest.exists():
+            logger.info("%s already exists in %s/ — skipping.", path.name, category)
+            return
+        try:
+            shutil.move(str(path), str(dest))
+            logger.info("Sorted %s → %s/", path.name, category)
+        except OSError as exc:
+            logger.error("Failed to sort %s → %s/: %s", path.name, category, exc)

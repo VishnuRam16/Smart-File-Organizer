@@ -43,3 +43,34 @@ DEBOUNCE_SECONDS: float = 3.0
 TEMP_EXTENSIONS: frozenset[str] = frozenset(
     {".crdownload", ".part", ".tmp", ".download"}
 )
+
+# ── File Categories ────────────────────────────────────────────────────────
+
+# Each category maps to filename keywords (checked first, case-insensitive)
+# and/or extensions (fallback). Order matters — first match wins.
+CATEGORIES: dict[str, dict] = {
+    "Screenshots": {
+        "filename_keywords": ["screenshot", "screen shot"],
+        "extensions": set(),
+    },
+    "Resumes": {
+        "filename_keywords": ["resume", "cv"],
+        "extensions": set(),
+    },
+    "Invoices": {
+        "filename_keywords": ["invoice", "receipt", "bill"],
+        "extensions": set(),
+    },
+    "Photos": {
+        "filename_keywords": [],
+        "extensions": {".jpg", ".jpeg", ".png", ".heic", ".gif", ".bmp", ".tiff", ".webp"},
+    },
+    "Data": {
+        "filename_keywords": [],
+        "extensions": {".csv", ".xlsx", ".xls", ".tsv", ".json"},
+    },
+    "Documents": {
+        "filename_keywords": [],
+        "extensions": {".pdf", ".docx", ".doc", ".pptx", ".txt", ".md"},
+    },
+}
