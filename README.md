@@ -23,12 +23,15 @@ into the matching subfolder:
 
 ### 2. Deduplicate within each category
 
-When the OS creates `report (1).pdf`, `report (2).pdf`, etc., the organizer:
+When duplicate-like names appear (for example `report (1).pdf`, `report_copy.pdf`,
+or `report-v2.pdf`), the organizer:
 
 1. **Promotes** the newest copy to the clean base name (`report.pdf`)
-2. **Archives** all older versions into a `<Category> Archive/` subfolder
-3. Timestamps use the file's **original creation date** (`st_birthtime`), not processing time
-4. If two files share the same birthtime, a `_2`, `_3` counter suffix avoids collisions
+2. **Compares SHA-256 hashes** to check if files are truly identical
+3. If identical, archives the old file in `<Category> Archive/` and promotes the new one
+4. If different, keeps both files (new one becomes `<name>_variant_2.ext`, etc.)
+5. Archive timestamps use the file's **original creation date** (`st_birthtime`), not processing time
+6. If two files share the same birthtime, a `_2`, `_3` counter suffix avoids collisions
 
 ### 3. Resume-specific handling
 
@@ -128,10 +131,10 @@ classify() — two-pass:
         ├── no category match?         → skip
         │
         ▼
-Is it a duplicate? e.g. "file (n).ext"
-  YES → archive existing base in <Category> Archive/
-        (timestamp = file's original st_birthtime)
-        promote new file to clean base name
+Is it a duplicate candidate? e.g. "file (n).ext", "file_copy.ext", "file-v2.ext"
+  YES → compare content hash (SHA-256)
+    identical      → archive existing base, promote new file to clean name
+    different      → keep both, rename incoming as file_variant_<n>.ext
   NO  → move to <Category>/ folder
 ```
 
@@ -163,7 +166,7 @@ Smart-File-Organizer/
 │   ├── tray.py            # System tray icon (pystray + Pillow)
 │   └── main.py            # Entry point (tray / --no-tray)
 ├── tests/
-│   ├── test_smart_file_organizer.py   # 37 pytest unit tests
+│   ├── test_smart_file_organizer.py   # 49 pytest unit tests
 │   ├── test_classifier_dummy.py       # Integration test on dummy files
 │   └── live_test.py                   # Multi-scenario simulation
 ├── dummy files/            # Sample files for manual testing
@@ -200,7 +203,7 @@ nohup python src/main.py &> sfo.log &
 ## Running Tests
 
 ```bash
-pytest tests/ -v                              # 37 unit tests
+pytest tests/ -v                              # 49 unit tests
 python tests/test_classifier_dummy.py         # integration test on dummy files
 ```
 
