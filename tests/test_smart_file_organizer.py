@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 # 1. UTILS — parse_duplicate, contains_keyword, build_archive_name
 # ═══════════════════════════════════════════════════════════════════════════
 
-from utils import build_archive_name, contains_keyword, parse_duplicate
+from utils import build_archive_name, contains_keyword, parse_duplicate, parse_duplicate_candidate
 
 
 class TestParseDuplicate:
@@ -100,6 +100,37 @@ class TestContainsKeyword:
 
     def test_underscore_name_with_keyword(self):
         assert contains_keyword("FN_LN_Resume (1).pdf", ["Resume", "CV"]) is True
+
+
+class TestParseDuplicateCandidate:
+    """Test broader duplicate candidate parsing (copy/version + OS suffix)."""
+
+    def test_os_duplicate(self):
+        assert parse_duplicate_candidate("photo (1).jpg") == ("photo", ".jpg")
+
+    def test_copy_underscore(self):
+        assert parse_duplicate_candidate("hr_doc_copy.pdf") == ("hr_doc", ".pdf")
+
+    def test_copy_dash(self):
+        assert parse_duplicate_candidate("hr-doc-copy.pdf") == ("hr-doc", ".pdf")
+
+    def test_copy_space_case_insensitive(self):
+        assert parse_duplicate_candidate("HR DOC COPY.PDF") == ("HR DOC", ".pdf")
+
+    def test_copy_with_os_suffix(self):
+        assert parse_duplicate_candidate("hr_doc_COPY (1).pdf") == ("hr_doc", ".pdf")
+
+    def test_v_underscore(self):
+        assert parse_duplicate_candidate("sop_doc_v1.pdf") == ("sop_doc", ".pdf")
+
+    def test_v_dash(self):
+        assert parse_duplicate_candidate("sop-doc-v2.pdf") == ("sop-doc", ".pdf")
+
+    def test_v_space_case_insensitive(self):
+        assert parse_duplicate_candidate("SOP DOC V 3.PDF") == ("SOP DOC", ".pdf")
+
+    def test_plain_name_not_candidate(self):
+        assert parse_duplicate_candidate("nda_doc.pdf") is None
 
 
 class TestBuildArchiveName:
@@ -273,6 +304,64 @@ class TestProcessFile:
         assert not base.exists(), "Classifier should move the file"
         sorted_file = workspace["downloads"] / "Resumes" / "Sam Smith - Resume.pdf"
         assert sorted_file.exists(), "Should be sorted into Resumes/"
+
+    def test_copy_suffix_same_content_archives_old(self, workspace):
+        """copy/(n) variants with identical bytes should archive old and promote new."""
+        old_copy = workspace["downloads"] / "hr_doc_copy.pdf"
+        old_copy.write_text("same content")
+
+        incoming = workspace["downloads"] / "hr_doc_COPY (1).pdf"
+        incoming.write_text("same content")
+
+        file_handler.process_file(incoming)
+
+        canonical = workspace["downloads"] / "Documents" / "hr_doc.pdf"
+        assert canonical.exists()
+        assert canonical.read_text() == "same content"
+
+        archive_folder = workspace["downloads"] / "Documents" / "Documents Archive"
+        archived = list(archive_folder.glob("hr_doc_copy - *.pdf"))
+        assert len(archived) == 1
+        assert not old_copy.exists()
+        assert not incoming.exists()
+
+    def test_copy_suffix_different_content_keeps_variant(self, workspace):
+        """copy/(n) variants with different content should keep both files."""
+        old_copy = workspace["downloads"] / "hr_doc_copy.pdf"
+        old_copy.write_text("version A")
+
+        incoming = workspace["downloads"] / "hr_doc_COPY (1).pdf"
+        incoming.write_text("version B")
+
+        file_handler.process_file(incoming)
+
+        canonical = workspace["downloads"] / "Documents" / "hr_doc.pdf"
+        variant = workspace["downloads"] / "Documents" / "hr_doc_variant_2.pdf"
+        assert canonical.exists()
+        assert canonical.read_text() == "version A"
+        assert variant.exists()
+        assert variant.read_text() == "version B"
+
+        archive_folder = workspace["downloads"] / "Documents" / "Documents Archive"
+        archived = list(archive_folder.glob("*.pdf")) if archive_folder.exists() else []
+        assert len(archived) == 0
+
+    def test_v_suffix_different_separators_resolve_same_family(self, workspace):
+        """_v1, -v2, and ' v3' should map to same canonical family."""
+        old_v1 = workspace["downloads"] / "sop_doc_v1.pdf"
+        old_v1.write_text("v1")
+        file_handler.process_file(old_v1)
+
+        incoming_v2 = workspace["downloads"] / "sop_doc-v2.pdf"
+        incoming_v2.write_text("v2")
+        file_handler.process_file(incoming_v2)
+
+        canonical = workspace["downloads"] / "Documents" / "sop_doc.pdf"
+        variant = workspace["downloads"] / "Documents" / "sop_doc_variant_2.pdf"
+        assert canonical.exists()
+        assert canonical.read_text() == "v1"
+        assert variant.exists()
+        assert variant.read_text() == "v2"
 
     def test_docx_support(self, workspace):
         """Should handle .docx files the same as .pdf."""

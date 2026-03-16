@@ -7,6 +7,7 @@ pattern parsing.  No business logic lives here.
 
 import logging
 import re
+import hashlib
 from datetime import datetime
 from pathlib import Path
 
@@ -61,6 +62,18 @@ _GENERIC_DUPLICATE_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Trailing duplicate-like suffixes supported for canonical matching:
+#   "hr_doc_copy.pdf", "hr-doc-copy.pdf", "hr doc copy.pdf"
+#   "sop_doc_v1.pdf", "sop-doc-v2.pdf", "sop doc v 3.pdf"
+_COPY_STEM_SUFFIX_RE = re.compile(
+    r"^(?P<stem>.+?)[\s_-]+copy(?:[\s_-]*\d+)?$",
+    re.IGNORECASE,
+)
+_VERSION_STEM_SUFFIX_RE = re.compile(
+    r"^(?P<stem>.+?)[\s_-]+v[\s_-]*\d+$",
+    re.IGNORECASE,
+)
+
 
 def parse_duplicate(filename: str) -> tuple[str, str] | None:
     """
@@ -103,6 +116,63 @@ def parse_generic_duplicate(filename: str) -> tuple[str, str] | None:
     return None
 
 
+def _strip_duplicate_suffixes(stem: str) -> tuple[str, bool]:
+    """Strip trailing copy/version suffixes from *stem* repeatedly."""
+    current = stem.strip()
+    stripped_any = False
+
+    while True:
+        copy_match = _COPY_STEM_SUFFIX_RE.match(current)
+        if copy_match:
+            candidate = copy_match.group("stem").strip()
+            if not candidate:
+                break
+            current = candidate
+            stripped_any = True
+            continue
+
+        version_match = _VERSION_STEM_SUFFIX_RE.match(current)
+        if version_match:
+            candidate = version_match.group("stem").strip()
+            if not candidate:
+                break
+            current = candidate
+            stripped_any = True
+            continue
+
+        break
+
+    return current, stripped_any
+
+
+def parse_duplicate_candidate(filename: str) -> tuple[str, str] | None:
+    """
+    Parse duplicate-like naming conventions and return canonical ``(stem, extension)``.
+
+    Supported, case-insensitive patterns:
+      - OS duplicates: ``name (1).ext``
+      - Copy suffixes: ``name_copy.ext``, ``name-copy.ext``, ``name copy.ext``
+      - Version suffixes: ``name_v1.ext``, ``name-v2.ext``, ``name v3.ext``
+
+    Returns ``None`` if no duplicate-like marker is found.
+    """
+    parsed_generic = parse_generic_duplicate(filename)
+    had_os_suffix = parsed_generic is not None
+
+    if had_os_suffix:
+        raw_stem, extension = parsed_generic
+    else:
+        p = Path(filename)
+        raw_stem, extension = p.stem, p.suffix
+        if not raw_stem or not extension:
+            return None
+
+    canonical_stem, had_suffix = _strip_duplicate_suffixes(raw_stem)
+    if had_os_suffix or had_suffix:
+        return canonical_stem, extension.lower()
+    return None
+
+
 def contains_keyword(filename: str, keywords: list[str]) -> bool:
     """
     Return ``True`` if *filename* contains at least one entry from *keywords*
@@ -110,6 +180,28 @@ def contains_keyword(filename: str, keywords: list[str]) -> bool:
     """
     lower = filename.lower()
     return any(kw.lower() in lower for kw in keywords)
+
+
+def file_sha256(path: Path, chunk_size: int = 1024 * 1024) -> str:
+    """Return SHA-256 digest for *path* using chunked reads."""
+    hasher = hashlib.sha256()
+    with path.open("rb") as f:
+        while True:
+            chunk = f.read(chunk_size)
+            if not chunk:
+                break
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
+def files_identical(a: Path, b: Path) -> bool:
+    """Return ``True`` when two files are byte-for-byte identical."""
+    try:
+        if a.stat().st_size != b.stat().st_size:
+            return False
+        return file_sha256(a) == file_sha256(b)
+    except OSError:
+        return False
 
 
 def build_archive_name(stem: str, extension: str,

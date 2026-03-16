@@ -22,7 +22,14 @@ from config import (
     WATCH_FOLDER,
 )
 from classifier import classify
-from utils import build_archive_name, contains_keyword, logger, parse_duplicate, parse_generic_duplicate
+from utils import (
+    build_archive_name,
+    contains_keyword,
+    files_identical,
+    logger,
+    parse_duplicate,
+    parse_duplicate_candidate,
+)
 
 
 # ── Internal helpers ───────────────────────────────────────────────────────
@@ -89,6 +96,58 @@ def _archive_base_file(base_path: Path) -> bool:
     except OSError as exc:
         logger.error("Failed to archive %s: %s", base_path.name, exc)
         return False
+
+
+def _next_variant_destination(dest_folder: Path, stem: str, extension: str) -> Path:
+    """Return the next available ``<stem>_variant_<n><extension>`` path."""
+    counter = 2
+    while True:
+        candidate = dest_folder / f"{stem}_variant_{counter}{extension}"
+        if not candidate.exists():
+            return candidate
+        counter += 1
+
+
+def _same_canonical_key(parsed: tuple[str, str] | None,
+                        base_stem: str,
+                        extension: str) -> bool:
+    """Case-insensitive comparison of canonical ``(stem, extension)`` tuples."""
+    if parsed is None:
+        return False
+    stem, ext = parsed
+    return stem.lower() == base_stem.lower() and ext.lower() == extension.lower()
+
+
+def _find_existing_duplicate_candidate(path: Path,
+                                       dest_folder: Path,
+                                       base_stem: str,
+                                       extension: str,
+                                       base_filename: str) -> Path | None:
+    """
+    Find an existing file in this duplicate family.
+
+    Priority:
+      1. Canonical file already in category folder
+      2. Exact canonical filename in watch root (case-insensitive)
+      3. Any watch-root file that normalizes to the same canonical key
+    """
+    canonical_dest = dest_folder / base_filename
+    if canonical_dest.exists():
+        return canonical_dest
+
+    for sibling in path.parent.iterdir():
+        if not sibling.is_file() or sibling == path:
+            continue
+        if sibling.name.lower() == base_filename.lower():
+            return sibling
+
+    for sibling in path.parent.iterdir():
+        if not sibling.is_file() or sibling == path:
+            continue
+        if _same_canonical_key(parse_duplicate_candidate(sibling.name), base_stem, extension):
+            return sibling
+
+    return None
 
 
 # ── Public API ─────────────────────────────────────────────────────────────
@@ -194,55 +253,73 @@ def _handle_classify(path: Path) -> None:
     archive_folder = dest_folder / f"{category} Archive"
     dest_folder.mkdir(exist_ok=True)
 
-    # Check if this is an OS-duplicate e.g. "file (1).png"
-    parsed = parse_generic_duplicate(path.name)
+    # Check if this is a duplicate candidate (OS (n), copy, v1, etc.)
+    parsed = parse_duplicate_candidate(path.name)
     if parsed is not None:
         base_stem, extension = parsed
         base_filename = f"{base_stem}{extension}"
+        canonical_dest = dest_folder / base_filename
+        existing = _find_existing_duplicate_candidate(
+            path=path,
+            dest_folder=dest_folder,
+            base_stem=base_stem,
+            extension=extension,
+            base_filename=base_filename,
+        )
 
-        # Archive old base in the category folder if it exists
-        existing_base = dest_folder / base_filename
-        if existing_base.exists():
+        # No prior file in this family -> this becomes canonical latest
+        if existing is None:
+            try:
+                shutil.move(str(path), str(canonical_dest))
+                logger.info("Sorted %s → %s/%s", path.name, category, base_filename)
+            except OSError as exc:
+                logger.error("Failed to sort %s → %s/: %s", path.name, category, exc)
+            return
+
+        # True duplicate (same bytes) -> archive old, promote new to canonical name
+        if files_identical(path, existing):
             archive_folder.mkdir(exist_ok=True)
-            archive_name = build_archive_name(existing_base.stem, existing_base.suffix,
-                                              source_path=existing_base, archive_dir=archive_folder)
+            archive_name = build_archive_name(
+                existing.stem,
+                existing.suffix,
+                source_path=existing,
+                archive_dir=archive_folder,
+            )
             archive_dest = archive_folder / archive_name
             try:
-                shutil.move(str(existing_base), str(archive_dest))
-                logger.info(
-                    "Archived → %s/%s",
-                    archive_folder.name,
-                    archive_name,
-                )
+                shutil.move(str(existing), str(archive_dest))
+                logger.info("Archived → %s/%s", archive_folder.name, archive_name)
             except OSError as exc:
-                logger.error("Failed to archive %s: %s", existing_base.name, exc)
+                logger.error("Failed to archive %s: %s", existing.name, exc)
                 return
 
-        # Also archive the base file if it's still sitting in Downloads
-        downloads_base = path.parent / base_filename
-        if downloads_base.exists() and downloads_base != path:
-            archive_folder.mkdir(exist_ok=True)
-            archive_name = build_archive_name(downloads_base.stem, downloads_base.suffix,
-                                              source_path=downloads_base, archive_dir=archive_folder)
-            archive_dest = archive_folder / archive_name
             try:
-                shutil.move(str(downloads_base), str(archive_dest))
-                logger.info(
-                    "Archived Downloads copy → %s/%s",
-                    archive_folder.name,
-                    archive_name,
-                )
+                shutil.move(str(path), str(canonical_dest))
+                logger.info("Sorted %s → %s/%s", path.name, category, base_filename)
             except OSError as exc:
-                logger.error("Failed to archive %s: %s", downloads_base.name, exc)
+                logger.error("Failed to sort %s → %s/: %s", path.name, category, exc)
+            return
+
+        # Same canonical family but different content -> keep both as variants
+        if existing != canonical_dest and not canonical_dest.exists():
+            try:
+                shutil.move(str(existing), str(canonical_dest))
+                logger.info("Sorted base copy → %s/%s", category, base_filename)
+            except OSError as exc:
+                logger.error("Failed to move base %s → %s/: %s", existing.name, category, exc)
                 return
 
-        # Move the new duplicate with the clean base name
-        dest = dest_folder / base_filename
+        variant_dest = _next_variant_destination(dest_folder, base_stem, extension)
         try:
-            shutil.move(str(path), str(dest))
-            logger.info("Sorted %s → %s/%s", path.name, category, base_filename)
+            shutil.move(str(path), str(variant_dest))
+            logger.info(
+                "Name collision with different content → %s/%s",
+                category,
+                variant_dest.name,
+            )
         except OSError as exc:
-            logger.error("Failed to sort %s → %s/: %s", path.name, category, exc)
+            logger.error("Failed to keep variant %s: %s", path.name, exc)
+        return
     else:
         # Not a duplicate — just move it
         dest = dest_folder / path.name
