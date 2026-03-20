@@ -13,11 +13,14 @@ in a daemon thread instead of the other way around.
 """
 
 import threading
+import tkinter as tk
 from pathlib import Path
+from tkinter import filedialog
 
 import pystray
 from PIL import Image, ImageDraw
 
+from file_handler import sort_folder_once
 from utils import logger
 from watcher import create_observer
 
@@ -91,6 +94,40 @@ class TrayController:
         icon.stop()
         logger.info("Tray icon closed. Goodbye.")
 
+    # ── Sort callbacks ─────────────────────────────────────────────────
+
+    def _on_sort_downloads(self, icon, item) -> None:
+        """Batch-sort all files in the watch folder."""
+        threading.Thread(
+            target=self._sort_folder_background,
+            args=(self._watch_folder,),
+            daemon=True,
+        ).start()
+
+    def _on_sort_folder(self, icon, item) -> None:
+        """Open a folder picker and sort the selected folder."""
+        threading.Thread(
+            target=self._pick_and_sort,
+            daemon=True,
+        ).start()
+
+    def _pick_and_sort(self) -> None:
+        """Show tkinter folder dialog, then sort the chosen folder."""
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        folder = filedialog.askdirectory(title="Select folder to organise")
+        root.destroy()
+
+        if folder:
+            self._sort_folder_background(Path(folder))
+
+    def _sort_folder_background(self, folder: Path) -> None:
+        """Run sort_folder_once in background and log the result."""
+        logger.info("Sorting folder: %s", folder)
+        count = sort_folder_once(folder)
+        logger.info("Done — sorted %d files in %s", count, folder)
+
     # ── Icon management ────────────────────────────────────────────────────
 
     def _update_icon(self) -> None:
@@ -114,6 +151,9 @@ class TrayController:
                 self._on_stop,
                 visible=lambda item: self.is_running,
             ),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem("Sort Downloads Now", self._on_sort_downloads),
+            pystray.MenuItem("Sort Folder\u2026", self._on_sort_folder),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Quit", self._on_quit),
         )
