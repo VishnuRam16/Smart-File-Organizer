@@ -152,19 +152,15 @@ def _find_existing_duplicate_candidate(path: Path,
 
 # ── Public API ─────────────────────────────────────────────────────────────
 
-def process_file(path: Path) -> None:
+def process_file(path: Path, *, target_root: Path | None = None) -> None:
     """
-    Evaluate *path* and, if it is a completed duplicate resume download,
-    archive the existing base file and rename the duplicate to the base name.
+    Evaluate *path* and sort it into the appropriate category subfolder.
 
-    Decision tree
-    ~~~~~~~~~~~~~
-    1.  Skip if *path* has a temporary/browser extension.
-    2.  Skip if the filename does not contain a configured keyword.
-    3.  Skip if the filename does not match the ``Name - Resume (n).pdf`` pattern.
-    4.  Wait for the download to finish (size-stable check).
-    5.  Archive the existing base file (if present).
-    6.  Rename the duplicate to the canonical base name.
+    Parameters
+    ----------
+    target_root : Path | None
+        Root folder where category subfolders are created.
+        Defaults to ``WATCH_FOLDER`` when ``None``.
     """
 
     # ── Guard: browser temp files ──────────────────────────────────────────
@@ -179,7 +175,7 @@ def process_file(path: Path) -> None:
             return
 
     # ── Fall through to category-based sorting ─────────────────────────────
-    _handle_classify(path)
+    _handle_classify(path, target_root=target_root)
 
 
 def _handle_duplicate(path: Path, parsed: tuple[str, str]) -> None:
@@ -232,7 +228,7 @@ def _handle_duplicate(path: Path, parsed: tuple[str, str]) -> None:
         )
 
 
-def _handle_classify(path: Path) -> None:
+def _handle_classify(path: Path, *, target_root: Path | None = None) -> None:
     """Sort *path* into a category subfolder, deduplicating within the category."""
     category = classify(path)
     if category is None:
@@ -249,7 +245,8 @@ def _handle_classify(path: Path) -> None:
         logger.warning("File disappeared before processing: %s", path.name)
         return
 
-    dest_folder = WATCH_FOLDER / category
+    root = target_root if target_root is not None else WATCH_FOLDER
+    dest_folder = root / category
     archive_folder = dest_folder / f"{category} Archive"
     dest_folder.mkdir(exist_ok=True)
 
@@ -331,3 +328,30 @@ def _handle_classify(path: Path) -> None:
             logger.info("Sorted %s → %s/", path.name, category)
         except OSError as exc:
             logger.error("Failed to sort %s → %s/: %s", path.name, category, exc)
+
+
+def sort_folder_once(folder: Path) -> int:
+    """
+    Batch-process every top-level file in *folder*.
+
+    Category subfolders are created inside *folder* itself.
+    Returns the number of files processed.
+    """
+    folder = Path(folder)
+    if not folder.is_dir():
+        logger.error("sort_folder_once: not a directory: %s", folder)
+        return 0
+
+    files = sorted(
+        f for f in folder.iterdir()
+        if f.is_file() and f.name != ".DS_Store" and not _is_temp_file(f)
+    )
+
+    count = 0
+    for f in files:
+        if f.exists():
+            process_file(f, target_root=folder)
+            count += 1
+
+    logger.info("sort_folder_once: processed %d files in %s", count, folder)
+    return count
