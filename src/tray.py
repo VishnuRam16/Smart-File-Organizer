@@ -12,10 +12,10 @@ macOS constraint: pystray must own the main thread, so the watcher runs
 in a daemon thread instead of the other way around.
 """
 
+import platform
+import subprocess
 import threading
-import tkinter as tk
 from pathlib import Path
-from tkinter import filedialog
 
 import pystray
 from PIL import Image, ImageDraw
@@ -112,15 +112,38 @@ class TrayController:
         ).start()
 
     def _pick_and_sort(self) -> None:
-        """Show tkinter folder dialog, then sort the chosen folder."""
-        root = tk.Tk()
-        root.withdraw()
-        root.attributes("-topmost", True)
-        folder = filedialog.askdirectory(title="Select folder to organise")
-        root.destroy()
-
+        """Show a native folder dialog, then sort the chosen folder."""
+        folder = self._ask_directory()
         if folder:
             self._sort_folder_background(Path(folder))
+
+    @staticmethod
+    def _ask_directory() -> str | None:
+        """Open a native folder-picker dialog and return the chosen path (or None)."""
+        if platform.system() == "Darwin":
+            script = (
+                'set f to POSIX path of (choose folder with prompt '
+                '"Select folder to organise")\nreturn f'
+            )
+            try:
+                result = subprocess.run(
+                    ["osascript", "-e", script],
+                    capture_output=True, text=True, timeout=120,
+                )
+                path = result.stdout.strip().rstrip("/")
+                return path if result.returncode == 0 and path else None
+            except (subprocess.TimeoutExpired, OSError):
+                return None
+        else:
+            # Windows / Linux — tkinter works fine off the main thread
+            import tkinter as tk
+            from tkinter import filedialog
+            root = tk.Tk()
+            root.withdraw()
+            root.attributes("-topmost", True)
+            folder = filedialog.askdirectory(title="Select folder to organise")
+            root.destroy()
+            return folder or None
 
     def _sort_folder_background(self, folder: Path) -> None:
         """Run sort_folder_once in background and log the result."""
