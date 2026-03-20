@@ -67,10 +67,18 @@ CATEGORIES: dict[str, dict] = {
     },
     "Data": {
         "filename_keywords": [],
-        "extensions": {".csv", ".xlsx", ".xls", ".tsv", ".json"},
+        "extensions": {".csv", ".xlsx", ".xls", ".tsv"},
     },
     "Documents": {
         "filename_keywords": [],
         "extensions": {".pdf", ".docx", ".doc", ".pptx", ".txt", ".md"},
+    },
+    "Code": {
+        "filename_keywords": [],
+        "extensions": {
+            ".py", ".ipynb", ".sql", ".json", ".js", ".ts", ".jsx", ".tsx",
+            ".java", ".c", ".cpp", ".h", ".hpp", ".go", ".rs", ".rb", ".php",
+            ".sh", ".zsh", ".yaml", ".yml", ".toml", ".html", ".css",
+        },
     },
 }
