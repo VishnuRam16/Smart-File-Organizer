@@ -438,3 +438,173 @@ class TestProcessFile:
         archived = list(workspace["archives"].glob("Sam Smith - Resume - *.pdf"))
         assert len(archived) == 1
         assert archived[0].read_text() == "version 1"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 3. CLASSIFIER — Code category
+# ═══════════════════════════════════════════════════════════════════════════
+
+from classifier import classify
+
+
+class TestCodeCategory:
+    """Test that code-related extensions are classified into Code/."""
+
+    @pytest.mark.parametrize("filename,expected", [
+        ("script.py", "Code"),
+        ("notebook.ipynb", "Code"),
+        ("query.sql", "Code"),
+        ("data.json", "Code"),
+        ("app.js", "Code"),
+        ("component.tsx", "Code"),
+        ("Main.java", "Code"),
+        ("program.c", "Code"),
+        ("lib.cpp", "Code"),
+        ("header.h", "Code"),
+        ("server.go", "Code"),
+        ("deploy.sh", "Code"),
+        ("config.yaml", "Code"),
+        ("settings.toml", "Code"),
+        ("index.html", "Code"),
+        ("styles.css", "Code"),
+    ])
+    def test_code_extensions(self, tmp_path, filename, expected):
+        p = tmp_path / filename
+        p.write_text("content")
+        assert classify(p) == expected
+
+    def test_json_not_in_data(self, tmp_path):
+        """json should be in Code, not Data."""
+        p = tmp_path / "payload.json"
+        p.write_text("{}")
+        assert classify(p) != "Data"
+
+    def test_csv_still_in_data(self, tmp_path):
+        """csv should remain in Data."""
+        p = tmp_path / "report.csv"
+        p.write_text("a,b")
+        assert classify(p) == "Data"
+
+
+class TestCodeCategoryProcessFile:
+    """Integration: code files sorted to Code/ by process_file."""
+
+    def test_py_sorted_to_code(self, workspace):
+        f = workspace["downloads"] / "script.py"
+        f.write_text("print('hello')")
+        file_handler.process_file(f)
+        assert (workspace["downloads"] / "Code" / "script.py").exists()
+        assert not f.exists()
+
+    def test_json_sorted_to_code(self, workspace):
+        f = workspace["downloads"] / "data.json"
+        f.write_text('{"key": "val"}')
+        file_handler.process_file(f)
+        assert (workspace["downloads"] / "Code" / "data.json").exists()
+        assert not f.exists()
+
+    def test_ipynb_sorted_to_code(self, workspace):
+        f = workspace["downloads"] / "analysis.ipynb"
+        f.write_text('{"cells":[]}')
+        file_handler.process_file(f)
+        assert (workspace["downloads"] / "Code" / "analysis.ipynb").exists()
+
+    def test_html_sorted_to_code(self, workspace):
+        f = workspace["downloads"] / "page.html"
+        f.write_text("<html></html>")
+        file_handler.process_file(f)
+        assert (workspace["downloads"] / "Code" / "page.html").exists()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 4. SORT FOLDER — sort_folder_once + target_root
+# ═══════════════════════════════════════════════════════════════════════════
+
+from file_handler import sort_folder_once
+
+
+class TestSortFolderOnce:
+    """Test batch sorting of an arbitrary folder."""
+
+    def test_sorts_files_into_subfolders(self, workspace):
+        dl = workspace["downloads"]
+        (dl / "photo.jpg").write_text("img")
+        (dl / "script.py").write_text("code")
+        (dl / "report.pdf").write_text("doc")
+
+        count = sort_folder_once(dl)
+
+        assert count == 3
+        assert (dl / "Photos" / "photo.jpg").exists()
+        assert (dl / "Code" / "script.py").exists()
+        assert (dl / "Documents" / "report.pdf").exists()
+
+    def test_sorts_into_arbitrary_folder(self, tmp_path):
+        """Category subfolders are created inside the target folder, not Downloads."""
+        folder = tmp_path / "MyFolder"
+        folder.mkdir()
+        (folder / "app.js").write_text("js")
+        (folder / "pic.png").write_text("png")
+
+        with patch("file_handler.DOWNLOAD_SETTLE_INTERVAL", 0.01), \
+             patch("file_handler.DOWNLOAD_TIMEOUT", 0.5):
+            count = sort_folder_once(folder)
+
+        assert count == 2
+        assert (folder / "Code" / "app.js").exists()
+        assert (folder / "Photos" / "pic.png").exists()
+
+    def test_skips_temp_files(self, workspace):
+        dl = workspace["downloads"]
+        (dl / "file.crdownload").write_text("temp")
+        (dl / "photo.jpg").write_text("img")
+
+        count = sort_folder_once(dl)
+
+        assert count == 1
+        assert (dl / "Photos" / "photo.jpg").exists()
+        assert (dl / "file.crdownload").exists()
+
+    def test_returns_zero_for_empty_folder(self, workspace):
+        for f in workspace["downloads"].iterdir():
+            if f.is_file():
+                f.unlink()
+        assert sort_folder_once(workspace["downloads"]) == 0
+
+    def test_unclassified_files_stay_at_root(self, workspace):
+        dl = workspace["downloads"]
+        (dl / "readme.numbers").write_text("apple")
+        (dl / "photo.jpg").write_text("img")
+
+        sort_folder_once(dl)
+
+        assert (dl / "readme.numbers").exists(), "Unclassified file should stay"
+        assert (dl / "Photos" / "photo.jpg").exists()
+
+
+class TestProcessFileTargetRoot:
+    """Test that process_file respects target_root for classify path."""
+
+    def test_target_root_overrides_watch_folder(self, tmp_path):
+        target = tmp_path / "CustomRoot"
+        target.mkdir()
+        f = target / "data.csv"
+        f.write_text("a,b,c")
+
+        with patch("file_handler.DOWNLOAD_SETTLE_INTERVAL", 0.01), \
+             patch("file_handler.DOWNLOAD_TIMEOUT", 0.5):
+            file_handler.process_file(f, target_root=target)
+
+        assert (target / "Data" / "data.csv").exists()
+        assert not f.exists()
+
+    def test_target_root_does_not_affect_resume_handler(self, workspace):
+        """Resume duplicate handler should still use VERSIONS_FOLDER, not target_root."""
+        dup = workspace["downloads"] / "Sam Smith - Resume (1).pdf"
+        dup.write_text("resume content")
+
+        file_handler.process_file(dup, target_root=workspace["downloads"])
+
+        base = workspace["versions"] / "Sam Smith - Resume.pdf"
+        assert base.exists()
+        assert base.read_text() == "resume content"
