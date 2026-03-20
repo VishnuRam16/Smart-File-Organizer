@@ -12,16 +12,27 @@ archiving older ones with their original file-creation timestamps.
 Every new file is classified by filename keywords or extension and moved
 into the matching subfolder:
 
-| Category      | Matches                                                        |
-|---------------|----------------------------------------------------------------|
-| Screenshots   | Filenames containing "screenshot" or "screen shot"             |
-| Resumes       | Filenames containing "resume" or "cv" (.pdf/.docx)             |
-| Invoices      | Filenames containing "invoice", "receipt", or "bill"           |
-| Photos        | `.jpg` `.jpeg` `.png` `.heic` `.gif` `.bmp` `.tiff` `.webp`   |
-| Data          | `.csv` `.xlsx` `.xls` `.tsv` `.json`                           |
-| Documents     | `.pdf` `.docx` `.doc` `.pptx` `.txt` `.md`                    |
+| Category      | Matches                                                                             |
+|---------------|-------------------------------------------------------------------------------------|
+| Screenshots   | Filenames containing "screenshot" or "screen shot"                                  |
+| Resumes       | Filenames containing "resume" or "cv" (.pdf/.docx)                                  |
+| Invoices      | Filenames containing "invoice", "receipt", or "bill"                                |
+| Photos        | `.jpg` `.jpeg` `.png` `.heic` `.gif` `.bmp` `.tiff` `.webp`                        |
+| Data          | `.csv` `.xlsx` `.xls` `.tsv`                                                        |
+| Documents     | `.pdf` `.docx` `.doc` `.pptx` `.txt` `.md`                                         |
+| Code          | `.py` `.ipynb` `.sql` `.json` `.js` `.ts` `.jsx` `.tsx` `.java` `.c` `.cpp` `.h` `.hpp` `.go` `.rs` `.rb` `.php` `.sh` `.zsh` `.yaml` `.yml` `.toml` `.html` `.css` |
 
-### 2. Deduplicate within each category
+### 2. Sort any folder on-demand
+
+Besides the automatic Downloads watcher, you can manually sort files at
+any time:
+
+- **Sort Downloads Now** — one-click batch sort of everything in
+  `~/Downloads` into category subfolders.
+- **Sort Folder…** — pick any folder via a native dialog; category
+  subfolders are created *inside* that folder.
+
+### 3. Deduplicate within each category
 
 When duplicate-like names appear (for example `report (1).pdf`, `report_copy.pdf`,
 or `report-v2.pdf`), the organizer:
@@ -33,7 +44,7 @@ or `report-v2.pdf`), the organizer:
 5. Archive timestamps use the file's **original creation date** (`st_birthtime`), not processing time
 6. If two files share the same birthtime, a `_2`, `_3` counter suffix avoids collisions
 
-### 3. Resume-specific handling
+### 4. Resume-specific handling
 
 Resume/CV files get dedicated treatment — duplicates are managed in a
 `Resume Versions/` folder with a `Resume Archives/` subfolder, separate
@@ -84,9 +95,17 @@ python src/main.py --no-tray    # headless terminal-only mode
 
 ### System tray
 
-A menu-bar icon (macOS) or system-tray icon (Windows/Linux) lets you
-**Start**, **Stop**, or **Quit** the watcher. The icon is green when
-running and red when stopped.
+A menu-bar icon (macOS) or system-tray icon (Windows/Linux) provides
+these options:
+
+| Menu item            | Action                                                  |
+|----------------------|---------------------------------------------------------|
+| Start / Stop Watcher | Toggle the background file-system watcher               |
+| Sort Downloads Now   | Batch-sort all files currently in `~/Downloads`         |
+| Sort Folder…         | Open a folder picker and sort files into that folder    |
+| Quit                 | Exit the application                                    |
+
+The icon is green when the watcher is running and red when stopped.
 
 If `pystray` is not installed, the app falls back to terminal mode
 automatically.
@@ -103,7 +122,7 @@ All tunable values live in `src/config.py`:
 | `VERSIONS_FOLDER`          | `~/Downloads/Resume Versions`         | Latest resume (clean base name)        |
 | `ARCHIVE_FOLDER`           | `.../Resume Versions/Resume Archives` | Older resume versions with timestamps  |
 | `KEYWORD_FILTER`           | `["Resume", "CV"]`                    | Resume-handler keyword triggers        |
-| `CATEGORIES`               | 6 categories (see table above)        | Category → keywords + extensions map   |
+| `CATEGORIES`               | 7 categories (see table above)        | Category → keywords + extensions map   |
 | `DOWNLOAD_SETTLE_INTERVAL` | `1.0` s                               | Polling interval for size check        |
 | `DOWNLOAD_TIMEOUT`         | `30.0` s                              | Give-up threshold for size polling     |
 | `DEBOUNCE_SECONDS`         | `3.0` s                               | Deduplication window for OS events     |
@@ -166,10 +185,8 @@ Smart-File-Organizer/
 │   ├── tray.py            # System tray icon (pystray + Pillow)
 │   └── main.py            # Entry point (tray / --no-tray)
 ├── tests/
-│   ├── test_smart_file_organizer.py   # 49 pytest unit tests
-│   ├── test_classifier_dummy.py       # Integration test on dummy files
+│   ├── test_smart_file_organizer.py   # 78 pytest unit tests
 │   └── live_test.py                   # Multi-scenario simulation
-├── dummy files/            # Sample files for manual testing
 ├── .gitignore
 ├── requirements.txt
 └── README.md
@@ -203,8 +220,7 @@ nohup python src/main.py &> sfo.log &
 ## Running Tests
 
 ```bash
-pytest tests/ -v                              # 49 unit tests
-python tests/test_classifier_dummy.py         # integration test on dummy files
+pytest tests/ -v                              # 78 unit tests
 ```
 
 ## Future Improvements
