@@ -40,7 +40,7 @@ or `report-v2.pdf`), the organizer:
 1. **Promotes** the newest copy to the clean base name (`report.pdf`)
 2. **Compares SHA-256 hashes** to check if files are truly identical
 3. If identical, archives the old file in `<Category> Archive/` and promotes the new one
-4. If different, keeps both files (new one becomes `<name>_variant_2.ext`, etc.)
+4. If different, stores the variant in `<Category> Archive/` as `<name>_variant_2.ext`
 5. Archive timestamps use the file's **original creation date** (`st_birthtime`), not processing time
 6. If two files share the same birthtime, a `_2`, `_3` counter suffix avoids collisions
 
@@ -84,7 +84,7 @@ source .venv/bin/activate        # macOS / Linux
 pip install -r requirements.txt
 ```
 
-Dependencies: `watchdog`, `pystray`, `Pillow`
+Dependencies: `watchdog`, `pystray`, `Pillow`, `pytest`
 
 ## Running
 
