@@ -336,15 +336,13 @@ class TestProcessFile:
         file_handler.process_file(incoming)
 
         canonical = workspace["downloads"] / "Documents" / "hr_doc.pdf"
-        variant = workspace["downloads"] / "Documents" / "hr_doc_variant_2.pdf"
         assert canonical.exists()
         assert canonical.read_text() == "version A"
-        assert variant.exists()
-        assert variant.read_text() == "version B"
 
         archive_folder = workspace["downloads"] / "Documents" / "Documents Archive"
-        archived = list(archive_folder.glob("*.pdf")) if archive_folder.exists() else []
-        assert len(archived) == 0
+        variant = archive_folder / "hr_doc_variant_2.pdf"
+        assert variant.exists()
+        assert variant.read_text() == "version B"
 
     def test_v_suffix_different_separators_resolve_same_family(self, workspace):
         """_v1, -v2, and ' v3' should map to same canonical family."""
@@ -357,9 +355,11 @@ class TestProcessFile:
         file_handler.process_file(incoming_v2)
 
         canonical = workspace["downloads"] / "Documents" / "sop_doc.pdf"
-        variant = workspace["downloads"] / "Documents" / "sop_doc_variant_2.pdf"
         assert canonical.exists()
         assert canonical.read_text() == "v1"
+
+        archive_folder = workspace["downloads"] / "Documents" / "Documents Archive"
+        variant = archive_folder / "sop_doc_variant_2.pdf"
         assert variant.exists()
         assert variant.read_text() == "v2"
 

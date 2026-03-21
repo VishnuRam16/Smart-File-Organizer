@@ -306,11 +306,12 @@ def _handle_classify(path: Path, *, target_root: Path | None = None) -> None:
                 logger.error("Failed to move base %s → %s/: %s", existing.name, category, exc)
                 return
 
-        variant_dest = _next_variant_destination(dest_folder, base_stem, extension)
+        archive_folder.mkdir(exist_ok=True)
+        variant_dest = _next_variant_destination(archive_folder, base_stem, extension)
         try:
             shutil.move(str(path), str(variant_dest))
             logger.info(
-                "Name collision with different content → %s/%s",
+                "Name collision with different content → %s Archive/%s",
                 category,
                 variant_dest.name,
             )
